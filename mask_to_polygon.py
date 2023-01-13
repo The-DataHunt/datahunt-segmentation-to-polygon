@@ -26,12 +26,11 @@ def datahunt_polygon_format(labels, polygons, img_size):
 
 
 class MaskToPolygon:
-    def __init__(self, args, infer_result):
+    def __init__(self, args):
         """
         Convert segmentation masking result to polygon
         """
         self.args = args
-        self.infer_result = infer_result
 
     def create_mask(self, mask_coord, image_shape):
         """Create masking array from coordinates"""
@@ -80,10 +79,10 @@ class MaskToPolygon:
                 index += 1
         return poly
 
-    def convert_mask_to_polygon(self):
+    def convert_mask_to_polygon(self, infer_result):
         """Convert mask to polygon"""
         polygon_result = []
-        for data_info in self.infer_result['results']:
+        for data_info in infer_result['results']:
             if self.args.masking_format == 'bool':
                 mask = data_info['mask']
             else:
@@ -113,12 +112,11 @@ def main():
     args = parser.parse_args()
 
     os.makedirs(args.output_path, exist_ok=True)
-
+    mask_to_poly = MaskToPolygon(args)
     for ext in ('jpg', 'png'):
         for img_path in glob.glob(f'{args.img_path}/*.{ext}'):
             infer_result = pickle.load(open(f"{args.anno_path}/{os.path.basename(img_path).replace(ext, 'pkl')}", 'rb'))
-            mask_to_poly = MaskToPolygon(args, infer_result)
-            polygons = mask_to_poly.convert_mask_to_polygon()
+            polygons = mask_to_poly.convert_mask_to_polygon(infer_result)
             output = {
                 'labels': datahunt_polygon_format(infer_result['results'], polygons, infer_result['imgSize']),
                 'images': 'image_url',
