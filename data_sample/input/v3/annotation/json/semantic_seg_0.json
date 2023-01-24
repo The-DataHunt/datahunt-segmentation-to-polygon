@@ -1,0 +1,17 @@
+{
+    "name": "instance_seg_0.png",
+    "imgSize": [
+        1080,
+        1920
+    ],
+    "results": [
+        {
+            "class": "road",
+            "color": [
+                174,
+                13,
+                96
+            ]
+        }
+    ]
+}

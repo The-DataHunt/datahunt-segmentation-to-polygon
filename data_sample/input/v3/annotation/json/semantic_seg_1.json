@@ -1,0 +1,33 @@
+{
+    "name": "instance_seg_1.png",
+    "imgSize": [
+        1080,
+        1920
+    ],
+    "results": [
+        {
+            "class": "road",
+            "color": [
+                235,
+                155,
+                221
+            ]
+        },
+        {
+            "class": "traffic light",
+            "color": [
+                128,
+                14,
+                157
+            ]
+        },
+        {
+            "class": "traffic sign",
+            "color": [
+                59,
+                6,
+                78
+            ]
+        }
+    ]
+}
