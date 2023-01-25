@@ -7,27 +7,27 @@
     "results": [
         {
             "class": "road",
-            "color": [
-                235,
-                155,
-                221
-            ]
+            "color": {
+                "r": 78,
+                "g": 82,
+                "b": 219
+            }
         },
         {
             "class": "traffic light",
-            "color": [
-                128,
-                14,
-                157
-            ]
+            "color": {
+                "r": 19,
+                "g": 177,
+                "b": 198
+            }
         },
         {
             "class": "traffic sign",
-            "color": [
-                59,
-                6,
-                78
-            ]
+            "color": {
+                "r": 189,
+                "g": 19,
+                "b": 56
+            }
         }
     ]
 }
