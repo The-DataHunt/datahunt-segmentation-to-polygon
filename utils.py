@@ -4,13 +4,34 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from skimage.measure import regionprops
+from scipy.ndimage import label, binary_dilation
+
+
+def split_seg_result(mask_ls, class_ls, area_threshold=4000):
+    new_mask_ls, new_class_ls = [], []
+    for cls, mask in zip(class_ls, mask_ls):
+        grow = binary_dilation(mask, structure=np.ones((5, 5), dtype=int))
+        lbl, npatches = label(grow)
+        lbl[mask == 0] = 0
+        for region in regionprops(lbl):
+            if region.area > area_threshold:
+                new_mask_ls.append(lbl == region.label)
+                new_class_ls.append(cls)
+    return new_mask_ls, new_class_ls
 
 
 def vis_polygons(polygons, image_path):
-    image = cv2.imread(image_path)
+    plt.gca().set_axis_off()
+    plt.subplots_adjust(top=1, bottom=0, right=1, left=0,
+                        hspace=0, wspace=0)
+    plt.margins(0, 0)
+    plt.gca().xaxis.set_major_locator(plt.NullLocator())
+    plt.gca().yaxis.set_major_locator(plt.NullLocator())
+    image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
     plt.imshow(image)
     for poly in polygons:
-        shp = patches.Polygon(poly, fill=True, edgecolor='r', ls='solid', lw=0.5)
+        shp = patches.Polygon(poly, fill=True, edgecolor='#0E6251', ls='solid', lw=3, facecolor='#2ECC71', alpha=0.5)
         plt.gca().add_patch(shp)
     plt.show()
 
@@ -24,7 +45,7 @@ def image_to_annotation_format(ann_path, mask_path):
     mask_ls, class_ls = [], []
     for instance in ann_info['results']:
         mask = np.zeros(mask_image.shape[:2], dtype=bool)
-        color = instance['color']
+        color = np.array([instance['color'][key] for key in ['r', 'g', 'b']])
         X, Y, _ = np.where((mask_image == color))
         mask[X, Y] = True
         if np.sum(mask) == 0:
