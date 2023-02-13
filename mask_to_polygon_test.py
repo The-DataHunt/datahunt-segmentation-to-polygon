@@ -1,36 +1,30 @@
-import os
-import glob
+import cv2
 import json
 import warnings
 import numpy as np
-from argparse import ArgumentParser
-from utils import image_to_annotation_format, NpEncoder
+from mask_to_polygon.mask_to_polygon import convert_mask_to_polygon as v1
+from mask_to_polygon.mask_to_polygon_v2 import convert_mask_to_polygon as v2
 warnings.simplefilter('ignore', np.RankWarning)
-from mask_to_polygon.mask_to_polygon import datahunt_polygon_format, MaskToPolygon
+
 
 def main():
-    parser = ArgumentParser()
-    parser.add_argument('--sampling_ratio', default=0.1, type=float)
-    parser.add_argument('--min_poly_num', default=5, type=str)
-    parser.add_argument('--poly_method', default='imantics', type=str, choices=['imantics', 'contours'],
-                        help='Polygon conversion method')
-    parser.add_argument('--anno_path', default='data_sample/input/v3/annotation', help='Annotation file or Directory')
-    parser.add_argument('--img_path', default='data_sample/input/v3/image', help='Image file or Directory')
-    parser.add_argument('--output_path', default='data_sample/output', help='Output or Directory')
-    args = parser.parse_args()
+    anno_info1 = json.load(open('./data_sample/input/v3/annotation/json/semantic_seg_0.json', 'r'))
+    mask_image1 = cv2.imread('./data_sample/input/v3/annotation/mask/semantic_seg_0.png')
+    output = v1(anno_info=anno_info1,
+                mask_image=mask_image1,
+                poly_method='imantics',
+                min_poly_num=5,
+                sampling_ratio=0.2)
+    print(output)
 
-    os.makedirs(args.output_path, exist_ok=True)
-    mask_to_poly = MaskToPolygon(args)
-    for ann_path in glob.glob(f'{args.anno_path}/json/*.json'):
-        mask_ls, cls_ls, image_size = image_to_annotation_format(ann_path, f"{args.anno_path}/mask/{os.path.basename(ann_path).replace('json', 'png')}")
-        polygons = mask_to_poly.convert_mask_to_polygon(mask_ls)
-        output = {
-            'labels': datahunt_polygon_format(cls_ls, polygons, image_size),
-            'images': 'image_url',
-            'relativePath': '',
-            'name': os.path.basename(ann_path).replace('json', 'png')
-        }
-        json.dump(output, open(f"{args.output_path}/{os.path.basename(ann_path)}", 'w'), indent=4, cls=NpEncoder)
+    anno_info2 = json.load(open('./data_sample/input/re3imagesegmentation/annotation/json/sample.json', 'r'))
+    mask_image2 = cv2.imread('./data_sample/input/re3imagesegmentation/annotation/mask/sample.png')
+    output2 = v2(anno_info=anno_info2,
+                 mask_image=mask_image2,
+                 poly_method='contours',
+                 min_poly_num=5,
+                 sampling_ratio=0.2)
+    print(output2)
 
 
 if __name__ == '__main__':
