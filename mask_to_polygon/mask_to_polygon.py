@@ -1,3 +1,5 @@
+import cv2
+import base64
 import warnings
 import numpy as np
 from imantics import Mask
@@ -5,11 +7,14 @@ from skimage import measure
 warnings.simplefilter('ignore', np.RankWarning)
 
 
-def image_to_annotation_format(ann_info, mask_image):
+def image_to_annotation_format(ann_info):
     """Convert image to mask2polygon input format"""
 
+    mask_array = np.fromstring(base64.b64decode(ann_info['masking']['value']), np.uint8)
+    mask_image = cv2.imdecode(mask_array, cv2.IMREAD_COLOR)
+
     mask_ls, class_ls = [], []
-    for instance in ann_info['results']:
+    for instance in ann_info['objects']:
         mask = np.zeros(mask_image.shape[:2], dtype=bool)
         color = np.array([instance['color'][key] for key in ['r', 'g', 'b']])
         X, Y, _ = np.where((mask_image == color))
@@ -17,7 +22,7 @@ def image_to_annotation_format(ann_info, mask_image):
         if np.sum(mask) == 0:
             continue
         mask_ls.append(mask)
-        class_ls.append(instance['class'])
+        class_ls.append(instance['label'])
     return mask_ls, class_ls, ann_info['imgSize']
 
 
@@ -56,7 +61,7 @@ def datahunt_polygon_format(classes, polygons, img_size):
     for cls, polygon in zip(classes, polygons):
         label_ls.append({
             'label': cls,
-            'imgSize': {'width': img_size[1], 'height': img_size[0]},
+            'imgSize': img_size,
             'boundingPoly': {
                 'type': 'POLYGON',
                 'vertices': [{'x': x, 'y': y} for x, y in polygon]
@@ -102,9 +107,10 @@ def slope_filtering(poly):
             index += 1
     return poly
 
-def convert_mask_to_polygon(anno_info, mask_image, poly_method, min_poly_num, sampling_ratio):
+
+def convert_mask_to_polygon(anno_info, poly_method, min_poly_num, sampling_ratio):
     """Convert mask to polygon"""
-    mask_ls, cls_ls, image_size = image_to_annotation_format(anno_info, mask_image)
+    mask_ls, cls_ls, image_size = image_to_annotation_format(anno_info)
 
     polygon_result = []
     for mask in mask_ls:
@@ -124,12 +130,5 @@ def convert_mask_to_polygon(anno_info, mask_image, poly_method, min_poly_num, sa
         if len(final_poly) < min_poly_num:
             continue
         polygon_result.append(final_poly)
+    return datahunt_polygon_format(cls_ls, polygon_result, image_size)
 
-    output = {
-        'labels': datahunt_polygon_format(cls_ls, polygon_result, image_size),
-        'images': 'image_url',
-        'relativePath': '',
-        'name': anno_info['name']
-    }
-
-    return output
