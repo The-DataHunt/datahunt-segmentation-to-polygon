@@ -1,30 +1,27 @@
-import cv2
 import json
 import warnings
 import numpy as np
-from mask_to_polygon.mask_to_polygon import convert_mask_to_polygon as v1
-from mask_to_polygon.mask_to_polygon_v2 import convert_mask_to_polygon as v2
+from pprint import pprint
+from utils import vis_polygons
+from mask_to_polygon.mask_to_polygon import convert_mask_to_polygon
 warnings.simplefilter('ignore', np.RankWarning)
 
 
 def main():
-    anno_info1 = json.load(open('./data_sample/input/v3/annotation/json/semantic_seg_0.json', 'r'))
-    mask_image1 = cv2.imread('./data_sample/input/v3/annotation/mask/semantic_seg_0.png')
-    output = v1(anno_info=anno_info1,
-                mask_image=mask_image1,
-                poly_method='imantics',
-                min_poly_num=5,
-                sampling_ratio=0.2)
-    print(output)
+    ann_path = './data_sample/input/v4/annotation/semantic_seg_0.json'
+    anno_info = json.load(open(ann_path, 'r'))
+    output = convert_mask_to_polygon(anno_info=anno_info,
+                                     poly_method='imantics',
+                                     min_poly_num=5,
+                                     sampling_ratio=0.2)
+    pprint(output)
 
-    anno_info2 = json.load(open('./data_sample/input/re3imagesegmentation/annotation/json/sample.json', 'r'))
-    mask_image2 = cv2.imread('./data_sample/input/re3imagesegmentation/annotation/mask/sample.png')
-    output2 = v2(anno_info=anno_info2,
-                 mask_image=mask_image2,
-                 poly_method='contours',
-                 min_poly_num=5,
-                 sampling_ratio=0.2)
-    print(output2)
+    # test
+    polygons = []
+    for o in output:
+        polygons.append([[coord['x'], coord['y']] for coord in o['boundingPoly']['vertices']])
+
+    vis_polygons(polygons=polygons, image_path=ann_path.replace('annotation', 'image').replace('.json', '.png'))
 
 
 if __name__ == '__main__':
