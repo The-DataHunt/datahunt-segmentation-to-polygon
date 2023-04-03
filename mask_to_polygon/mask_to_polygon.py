@@ -10,7 +10,7 @@ warnings.simplefilter('ignore', np.RankWarning)
 def image_to_annotation_format(ann_info):
     """Convert image to mask2polygon input format"""
 
-    mask_array = np.fromstring(base64.b64decode(ann_info['masking']['value']), np.uint8)
+    mask_array = np.fromstring(base64.b64decode(ann_info['mask']['value']), np.uint8)
     mask_image = cv2.imdecode(mask_array, cv2.IMREAD_COLOR)
 
     mask_ls, class_ls = [], []
