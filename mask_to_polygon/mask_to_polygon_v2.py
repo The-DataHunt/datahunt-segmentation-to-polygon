@@ -6,6 +6,10 @@ from skimage.measure import regionprops
 from scipy.ndimage import label, binary_dilation
 warnings.simplefilter('ignore', np.RankWarning)
 
+"""
+Semantic Segmentation to Polygon Conversion
+"""
+
 
 def image_to_annotation_format(ann_info, mask_image):
     """Convert image to mask2polygon input format"""

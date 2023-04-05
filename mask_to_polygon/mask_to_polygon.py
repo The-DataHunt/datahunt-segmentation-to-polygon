@@ -3,28 +3,11 @@ import base64
 import warnings
 import numpy as np
 from imantics import Mask
-from skimage import measure
+from skimage import measure, draw
+from typing import List, Dict, Tuple
 warnings.simplefilter('ignore', np.RankWarning)
 
-
-def image_to_annotation_format(ann_info):
-    """Convert image to mask2polygon input format"""
-
-    mask_array = np.fromstring(base64.b64decode(ann_info['mask']['value']), np.uint8)
-    mask_image = cv2.imdecode(mask_array, cv2.IMREAD_COLOR)
-
-    mask_ls, class_ls = [], []
-    for instance in ann_info['objects']:
-        mask = np.zeros(mask_image.shape[:2], dtype=bool)
-        color = np.array([instance['color'][key] for key in ['r', 'g', 'b']])
-        X, Y, _ = np.where((mask_image == color))
-        mask[X, Y] = True
-        if np.sum(mask) == 0:
-            continue
-        mask_ls.append(mask)
-        class_ls.append(instance['label'])
-    return mask_ls, class_ls, ann_info['imgSize']
-
+"""Instance Segmentation to Polygon Conversion"""
 
 def add_corner_points(corner_points, final_poly, poly):
     corner_points = corner_points[np.where(np.any(np.isin(corner_points, final_poly) == 0, axis=1))[0]]
@@ -54,20 +37,6 @@ def get_corner_points(poly):
     rect[1] = poly[np.argmin(diff)]
     rect[3] = poly[np.argmax(diff)]
     return np.unique(rect, axis=0)
-
-
-def datahunt_polygon_format(classes, polygons, img_size):
-    label_ls = []
-    for cls, polygon in zip(classes, polygons):
-        label_ls.append({
-            'label': cls,
-            'imgSize': img_size,
-            'boundingPoly': {
-                'type': 'POLYGON',
-                'vertices': [{'x': x, 'y': y} for x, y in polygon]
-            }
-        })
-    return label_ls
 
 
 def imantics_poly(mask):
@@ -108,27 +77,84 @@ def slope_filtering(poly):
     return poly
 
 
-def convert_mask_to_polygon(anno_info, poly_method, min_poly_num, sampling_ratio):
-    """Convert mask to polygon"""
-    mask_ls, cls_ls, image_size = image_to_annotation_format(anno_info)
+def datahunt_polygon_format(classes, polygons, img_size):
+    label_ls = []
+    for cls, polygon in zip(classes, polygons):
+        label_ls.append({
+            'label': cls,
+            'imgSize': img_size,
+            'boundingPoly': {
+                'type': 'POLYGON',
+                'vertices': [{'x': x, 'y': y} for x, y in polygon]
+            }
+        })
+    return label_ls
 
-    polygon_result = []
-    for mask in mask_ls:
-        if poly_method == 'imantics':
-            poly = imantics_poly(mask)
+
+class MaskPolygonConverter:
+    def __init__(self, poly_method: str = 'imantics', min_poly_num: int = 3, sampling_ratio: float = 0.1):
+        """
+        Admin parameters
+        :param poly_method: imantics or contours
+        :param min_poly_num: minimum number of points a polygon
+        :param sampling_ratio: Percentage of polygon points left after filtering
+        """
+        self.poly_method = poly_method
+        self.min_poly_num = min_poly_num
+        self.sampling_ratio = sampling_ratio
+
+    def string_image_to_array(self, str_image: str, return_mask_array: bool = True) -> np.ndarray:
+        mask_array = np.fromstring(base64.b64decode(str_image), np.uint8)
+        mask_image = cv2.imdecode(mask_array, cv2.IMREAD_COLOR)
+
+        if return_mask_array:
+            mask_array = np.where(mask_image == 255, 1, 0)
+            return mask_array
+        return mask_image
+
+    def mask_array_to_polygon(self, mask_array: np.ndarray) -> np.ndarray:
+        if self.poly_method == 'imantics':
+            poly = imantics_poly(mask_array)
         else:
-            poly = contours_poly(mask)
+            poly = contours_poly(mask_array)
         corner_points = get_corner_points(poly).astype('int32')
 
-        if poly_method == 'contours':
+        if self.poly_method == 'contours':
             poly = slope_filtering(poly.tolist())
 
-        filtering_interval = int(np.round(len(poly) / (len(poly) * sampling_ratio)))
+        filtering_interval = int(np.round(len(poly) / (len(poly) * self.sampling_ratio)))
         final_poly = poly[::filtering_interval]
         final_poly = add_corner_points(corner_points, final_poly, poly)
 
-        if len(final_poly) < min_poly_num:
-            continue
-        polygon_result.append(final_poly)
-    return datahunt_polygon_format(cls_ls, polygon_result, image_size)
+        if len(final_poly) < self.min_poly_num:
+            return np.empty(shape=(0, 0))
+        return final_poly
 
+    def polygon_to_mask_image(self, polygon: List, img_size: Dict, color_platte: Dict) -> np.ndarray:
+        color_map_image = np.zeros((img_size['height'], img_size['width'], 3), dtype=np.uint8)
+        for info in polygon:
+            label = info['label']
+            poly = np.array([[v['y'], v['x']] for v in info['boundingPoly']['vertices']], dtype=np.int32)
+            mask = draw.polygon2mask((img_size['height'], img_size['width']), poly)
+            color_map_image[mask == 1, :] = color_platte[label]
+        color_map_image = color_map_image[..., ::-1]
+        return color_map_image
+
+    def get_auto_labeling_result(self, model_inference_result_json: Dict) -> List:
+        mask_image = self.string_image_to_array(model_inference_result_json['mask']['value'], return_mask_array=False)
+
+        mask_ls, class_ls = [], []
+        for instance in model_inference_result_json['objects']:
+            mask = np.zeros(mask_image.shape[:2], dtype=bool)
+            color = np.array([instance['color'][key] for key in ['r', 'g', 'b']])
+            X, Y, _ = np.where((mask_image == color))
+            mask[X, Y] = True
+            if np.sum(mask) == 0:
+                continue
+            mask_ls.append(mask)
+            class_ls.append(instance['label'])
+
+        polygon_result = []
+        for mask in mask_ls:
+            polygon_result.append(self.mask_array_to_polygon(mask))
+        return datahunt_polygon_format(class_ls, polygon_result,  model_inference_result_json['imgSize'])
