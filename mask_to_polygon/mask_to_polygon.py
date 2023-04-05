@@ -104,15 +104,17 @@ class MaskPolygonConverter:
         self.sampling_ratio = sampling_ratio
 
     def string_image_to_array(self, str_image: str, return_mask_array: bool = True) -> np.ndarray:
-        mask_array = np.fromstring(base64.b64decode(str_image), np.uint8)
+        mask_array = np.frombuffer(base64.b64decode(str_image), np.uint8)
         mask_image = cv2.imdecode(mask_array, cv2.IMREAD_COLOR)
 
         if return_mask_array:
-            mask_array = np.where(mask_image == 255, 1, 0)
+            mask_array = np.zeros(mask_image.shape[:2], dtype=bool)
+            X, Y, _ = np.where((mask_image == [255, 255, 255]))
+            mask_array[X, Y] = True
             return mask_array
         return mask_image
 
-    def mask_array_to_polygon(self, mask_array: np.ndarray) -> np.ndarray:
+    def mask_array_to_polygon(self, mask_array: np.ndarray, model_infer_object: bool = False) -> np.ndarray:
         if self.poly_method == 'imantics':
             poly = imantics_poly(mask_array)
         else:
@@ -128,9 +130,9 @@ class MaskPolygonConverter:
 
         if len(final_poly) < self.min_poly_num:
             return np.empty(shape=(0, 0))
-        return final_poly
+        return final_poly if model_infer_object else final_poly.flatten()
 
-    def polygon_to_mask_image(self, polygon: List, img_size: Dict, color_platte: Dict) -> np.ndarray:
+    def polygon_to_mask_image(self, polygon: List[Dict], img_size: Dict, color_platte: Dict) -> np.ndarray:
         color_map_image = np.zeros((img_size['height'], img_size['width'], 3), dtype=np.uint8)
         for info in polygon:
             label = info['label']
@@ -156,5 +158,5 @@ class MaskPolygonConverter:
 
         polygon_result = []
         for mask in mask_ls:
-            polygon_result.append(self.mask_array_to_polygon(mask))
+            polygon_result.append(self.mask_array_to_polygon(mask, model_infer_object=True))
         return datahunt_polygon_format(class_ls, polygon_result,  model_inference_result_json['imgSize'])
