@@ -3,8 +3,8 @@ import base64
 import warnings
 import numpy as np
 from imantics import Mask
+from typing import List, Dict, Union
 from skimage import measure, draw
-from typing import List, Dict, Tuple
 warnings.simplefilter('ignore', np.RankWarning)
 
 """Instance Segmentation to Polygon Conversion"""
@@ -103,22 +103,36 @@ class MaskPolygonConverter:
         self.min_poly_num = min_poly_num
         self.sampling_ratio = sampling_ratio
 
-    def string_image_to_array(self, str_image: str, return_mask_array: bool = True) -> np.ndarray:
-        mask_array = np.frombuffer(base64.b64decode(str_image), np.uint8)
-        mask_image = cv2.imdecode(mask_array, cv2.IMREAD_COLOR)
+    def string_image_to_array(self, str_image: str, return_mask_array: bool = True) -> Union[np.ndarray, List[np.ndarray]]:
+        from_buffer = np.frombuffer(base64.b64decode(str_image), np.uint8)
+        mask_image = cv2.imdecode(from_buffer, cv2.IMREAD_COLOR)
 
         if return_mask_array:
             mask_array = np.zeros(mask_image.shape[:2], dtype=bool)
-            X, Y, _ = np.where((mask_image == [255, 255, 255]))
+            X, Y, _ = np.where((mask_image != [0, 0, 0]))
             mask_array[X, Y] = True
             return mask_array
         return mask_image
+
+    def check_is_multiple_or_hierarchy(self, mask_array: np.ndarray) -> List[Dict]:
+        contours, hierarchy = cv2.findContours(mask_array.astype(np.uint8), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)  # CHAIN_APPROX_NONE
+        parent_idx = np.squeeze(np.where(hierarchy[0, :, 3] == -1))
+        mask_array_dict_ls = []
+        for p_idx in np.nditer(parent_idx):
+            contour_dict = dict()
+            contour_dict.update({'parent': draw.polygon2mask(mask_array.shape, contours[p_idx].reshape(-1, 2)[:, [1, 0]])})
+            child_idx = np.squeeze(np.where(hierarchy[0, :, 3] == p_idx))
+            if child_idx.size > 0:
+                contour_dict.update({'child': [draw.polygon2mask(mask_array.shape, contours[c_idx].reshape(-1, 2)[:, [1, 0]]) for c_idx in np.nditer(child_idx)]})
+            mask_array_dict_ls.append(contour_dict)
+        return mask_array_dict_ls
 
     def mask_array_to_polygon(self, mask_array: np.ndarray, model_infer_object: bool = False) -> np.ndarray:
         if self.poly_method == 'imantics':
             poly = imantics_poly(mask_array)
         else:
             poly = contours_poly(mask_array)
+
         corner_points = get_corner_points(poly).astype('int32')
 
         if self.poly_method == 'contours':
@@ -160,3 +174,13 @@ class MaskPolygonConverter:
         for mask in mask_ls:
             polygon_result.append(self.mask_array_to_polygon(mask, model_infer_object=True))
         return datahunt_polygon_format(class_ls, polygon_result,  model_inference_result_json['imgSize'])
+
+    def get_single_object_polygon_result(self, str_image: str) -> List[Dict]:
+        mask_array = self.string_image_to_array(str_image, return_mask_array=True)
+        mask_array_dict_ls = self.check_is_multiple_or_hierarchy(mask_array)
+        for p_idx, mask_dict in enumerate(mask_array_dict_ls):
+            mask_array_dict_ls[p_idx]['parent'] = self.mask_array_to_polygon(mask_dict['parent'])
+            if 'child' in mask_dict.keys():
+                for c_idx, child_mask in enumerate(mask_dict['child']):
+                    mask_array_dict_ls[p_idx]['child'][c_idx] = self.mask_array_to_polygon(child_mask)
+        return mask_array_dict_ls
