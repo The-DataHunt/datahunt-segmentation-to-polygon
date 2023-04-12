@@ -92,16 +92,14 @@ def datahunt_polygon_format(classes, polygons, img_size):
 
 
 class MaskPolygonConverter:
-    def __init__(self, poly_method: str = 'imantics', min_poly_num: int = 3, sampling_ratio: float = 0.1):
+    def __init__(self, poly_method: str = 'imantics', min_poly_num: int = 3):
         """
         Admin parameters
         :param poly_method: imantics or contours
         :param min_poly_num: minimum number of points a polygon
-        :param sampling_ratio: Percentage of polygon points left after filtering
         """
         self.poly_method = poly_method
         self.min_poly_num = min_poly_num
-        self.sampling_ratio = sampling_ratio
 
     def string_image_to_array(self, str_image: str, return_mask_array: bool = True) -> Union[np.ndarray, List[np.ndarray]]:
         from_buffer = np.frombuffer(base64.b64decode(str_image), np.uint8)
@@ -127,7 +125,7 @@ class MaskPolygonConverter:
             mask_array_dict_ls.append(contour_dict)
         return mask_array_dict_ls
 
-    def mask_array_to_polygon(self, mask_array: np.ndarray, model_infer_object: bool = False) -> np.ndarray:
+    def mask_array_to_polygon(self, mask_array: np.ndarray, sampling_ratio: float, model_infer_object: bool = False) -> np.ndarray:
         if self.poly_method == 'imantics':
             poly = imantics_poly(mask_array)
         else:
@@ -138,7 +136,7 @@ class MaskPolygonConverter:
         if self.poly_method == 'contours':
             poly = slope_filtering(poly.tolist())
 
-        filtering_interval = int(np.round(len(poly) / (len(poly) * self.sampling_ratio)))
+        filtering_interval = int(np.round(len(poly) / (len(poly) * sampling_ratio)))
         final_poly = poly[::filtering_interval]
         final_poly = add_corner_points(corner_points, final_poly, poly)
 
@@ -156,7 +154,7 @@ class MaskPolygonConverter:
         color_map_image = color_map_image[..., ::-1]
         return color_map_image
 
-    def get_auto_labeling_result(self, model_inference_result_json: Dict) -> List:
+    def get_auto_labeling_result(self, model_inference_result_json: Dict, sampling_ratio: float = 0.1) -> List:
         mask_image = self.string_image_to_array(model_inference_result_json['mask']['value'], return_mask_array=False)
 
         mask_ls, class_ls = [], []
@@ -172,15 +170,15 @@ class MaskPolygonConverter:
 
         polygon_result = []
         for mask in mask_ls:
-            polygon_result.append(self.mask_array_to_polygon(mask, model_infer_object=True))
+            polygon_result.append(self.mask_array_to_polygon(mask, sampling_ratio, model_infer_object=True))
         return datahunt_polygon_format(class_ls, polygon_result,  model_inference_result_json['imgSize'])
 
-    def get_single_object_polygon_result(self, str_image: str) -> List[Dict]:
+    def get_single_object_polygon_result(self, str_image: str, sampling_ratio: float = 0.1) -> List[Dict]:
         mask_array = self.string_image_to_array(str_image, return_mask_array=True)
         mask_array_dict_ls = self.check_is_multiple_or_hierarchy(mask_array)
         for p_idx, mask_dict in enumerate(mask_array_dict_ls):
-            mask_array_dict_ls[p_idx]['parent'] = self.mask_array_to_polygon(mask_dict['parent'])
+            mask_array_dict_ls[p_idx]['parent'] = self.mask_array_to_polygon(mask_dict['parent'], sampling_ratio)
             if 'child' in mask_dict.keys():
                 for c_idx, child_mask in enumerate(mask_dict['child']):
-                    mask_array_dict_ls[p_idx]['child'][c_idx] = self.mask_array_to_polygon(child_mask)
+                    mask_array_dict_ls[p_idx]['child'][c_idx] = self.mask_array_to_polygon(child_mask, sampling_ratio)
         return mask_array_dict_ls
