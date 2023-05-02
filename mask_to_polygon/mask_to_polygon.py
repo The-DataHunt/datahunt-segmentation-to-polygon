@@ -3,40 +3,29 @@ import base64
 import warnings
 import numpy as np
 from imantics import Mask
+import numpy_indexed as npi
 from typing import List, Dict, Union
 from skimage import measure, draw
 warnings.simplefilter('ignore', np.RankWarning)
 
 """Instance Segmentation to Polygon Conversion"""
 
-def add_corner_points(corner_points, final_poly, poly):
-    corner_points = corner_points[np.where(np.any(np.isin(corner_points, final_poly) == 0, axis=1))[0]]
-    corner_idx, point_idx = [], []
-    for p in corner_points:
-        corner_idx.append(int(np.where((poly == p).all(axis=1))[0]))
-    for p in final_poly:
-        point_idx.append(int(np.where((poly == p).all(axis=1))[0]))
-    merge_ls = sorted(point_idx + corner_idx)
-    final_poly = final_poly.tolist()
-    sort_idx = np.argsort(corner_idx)
-    corner_idx = np.array(corner_idx)[sort_idx]
-    corner_points = np.array(corner_points)[sort_idx]
-    for idx, p in zip(corner_idx, corner_points):
-        final_poly.insert(merge_ls.index(idx), list(p))
-    return np.array(final_poly)
 
+def add_corner_points(corner_points, corner_idx, final_poly, poly, poly_backup=None):
+    assert len(corner_points) == len(corner_idx)
+    not_exist_idx = np.where(np.any(np.isin(corner_points, final_poly) == 0, axis=1))[0]
+    not_exist_corner_idx = corner_idx[not_exist_idx]
+    not_exist_corner_points = corner_points[not_exist_idx]
 
-def get_corner_points(poly):
-    rect = np.zeros((4, 2), dtype="float32")
+    if poly_backup is not None:
+        final_poly_point_idx = npi.indices(poly_backup, final_poly)
+    else:
+        final_poly_point_idx = npi.indices(poly, final_poly)
 
-    s = poly.sum(axis=1)
-    rect[0] = poly[np.argmin(s)]
-    rect[2] = poly[np.argmax(s)]
-
-    diff = np.diff(poly, axis=1)
-    rect[1] = poly[np.argmin(diff)]
-    rect[3] = poly[np.argmax(diff)]
-    return np.unique(rect, axis=0)
+    merge_sort_idx = np.argsort(np.append(final_poly_point_idx, not_exist_corner_idx))
+    merge_value = np.append(final_poly, not_exist_corner_points, axis=0)[merge_sort_idx]
+    assert len(merge_sort_idx) == len(merge_value)
+    return merge_value
 
 
 def imantics_poly(mask):
@@ -71,7 +60,7 @@ def slope_filtering(poly):
         pop_index = index + 1
         is_match = calculate_slope(poly, index)
         if is_match:
-            poly.pop(pop_index)
+            poly = np.delete(poly, pop_index, axis=0)
         else:
             index += 1
     return poly
@@ -125,20 +114,23 @@ class MaskPolygonConverter:
             mask_array_dict_ls.append(contour_dict)
         return mask_array_dict_ls
 
-    def mask_array_to_polygon(self, mask_array: np.ndarray, sampling_ratio: float, model_infer_object: bool = False) -> np.ndarray:
+    def mask_array_to_polygon(self, mask_array: np.ndarray, sampling_ratio: float = 0.1, model_infer_object: bool = False) -> np.ndarray:
+        poly_backup = None
         if self.poly_method == 'imantics':
             poly = imantics_poly(mask_array)
         else:
-            poly = contours_poly(mask_array)
+            poly = contours_poly(mask_array).astype('int32')
 
-        corner_points = get_corner_points(poly).astype('int32')
+        corner_points = cv2.convexHull(poly, clockwise=True).reshape(-1, 2)
+        corner_idx = npi.indices(poly, corner_points)
 
         if self.poly_method == 'contours':
-            poly = slope_filtering(poly.tolist())
+            poly_backup = poly.copy()
+            poly = slope_filtering(poly)
 
         filtering_interval = int(np.round(len(poly) / (len(poly) * sampling_ratio)))
         final_poly = poly[::filtering_interval]
-        final_poly = add_corner_points(corner_points, final_poly, poly)
+        final_poly = add_corner_points(corner_points, corner_idx, final_poly, poly, poly_backup)
 
         if len(final_poly) < self.min_poly_num:
             return np.empty(shape=(0, 0))
