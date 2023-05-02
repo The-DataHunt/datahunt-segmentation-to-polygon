@@ -21,7 +21,7 @@ def split_seg_result(mask_ls, class_ls, area_threshold=4000):
     return new_mask_ls, new_class_ls
 
 
-def vis_polygons(polygons, image_path):
+def vis_polygons(polygons, image_path, save_path=None):
     plt.gca().set_axis_off()
     plt.subplots_adjust(top=1, bottom=0, right=1, left=0,
                         hspace=0, wspace=0)
@@ -31,9 +31,14 @@ def vis_polygons(polygons, image_path):
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
     plt.imshow(image)
     for poly in polygons:
-        shp = patches.Polygon(poly, fill=True, edgecolor='#0E6251', ls='solid', lw=3, facecolor='#2ECC71', alpha=0.5)
+        shp = patches.Polygon(poly, fill=False, edgecolor='#0000FF', ls='solid', lw=3, alpha=0.5)  # facecolor=color
         plt.gca().add_patch(shp)
-    plt.show()
+        plt.scatter(poly[:, 0], poly[:, 1], s=5)
+    if save_path is None:
+        plt.show()
+    else:
+        plt.savefig(save_path)
+        plt.clf()
 
 
 def image_to_annotation_format(ann_path, mask_path):
