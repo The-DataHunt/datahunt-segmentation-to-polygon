@@ -102,7 +102,7 @@ class MaskPolygonConverter:
         return mask_image
 
     def check_is_multiple_or_hierarchy(self, mask_array: np.ndarray) -> List[Dict]:
-        contours, hierarchy = cv2.findContours(mask_array.astype(np.uint8), cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+        contours, hierarchy = cv2.findContours(mask_array.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         parent_idx = np.squeeze(np.where(hierarchy[0, :, 3] == -1))
         mask_array_dict_ls = []
         for p_idx in np.nditer(parent_idx):
