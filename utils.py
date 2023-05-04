@@ -33,11 +33,12 @@ def vis_polygons(polygons, image_path, save_path=None):
     for poly in polygons:
         shp = patches.Polygon(poly, fill=False, edgecolor='#0000FF', ls='solid', lw=3, alpha=0.5)  # facecolor=color
         plt.gca().add_patch(shp)
-        plt.scatter(poly[:, 0], poly[:, 1], s=5)
+        # plt.scatter(poly[:, 0], poly[:, 1], s=5)
     if save_path is None:
         plt.show()
     else:
-        plt.savefig(save_path)
+        plt.axis('off')
+        plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
         plt.clf()
 
 
