@@ -4,6 +4,7 @@ import warnings
 import numpy as np
 from imantics import Mask
 import numpy_indexed as npi
+from PIL import Image, ImageDraw
 from typing import List, Dict, Union
 from skimage import measure, draw
 warnings.simplefilter('ignore', np.RankWarning)
@@ -80,6 +81,13 @@ def datahunt_polygon_format(classes, polygons, img_size):
     return label_ls
 
 
+def convert_contour_to_mask(contour, img_size):
+    img = Image.new("L", (img_size[1], img_size[0]), 0)
+    ImageDraw.Draw(img).polygon(contour.ravel().tolist(), outline=1, fill=1)
+    mask = np.array(img)
+    return mask
+
+
 class MaskPolygonConverter:
     def __init__(self, poly_method: str = 'imantics', min_poly_num: int = 3):
         """
@@ -107,10 +115,10 @@ class MaskPolygonConverter:
         mask_array_dict_ls = []
         for p_idx in np.nditer(parent_idx):
             contour_dict = dict()
-            contour_dict.update({'parent': draw.polygon2mask(mask_array.shape, contours[p_idx].reshape(-1, 2)[:, [1, 0]])})
+            contour_dict.update({'parent': convert_contour_to_mask(contours[p_idx], mask_array.shape)})
             child_idx = np.squeeze(np.where(hierarchy[0, :, 3] == p_idx))
             if child_idx.size > 0:
-                contour_dict.update({'child': [draw.polygon2mask(mask_array.shape, contours[c_idx].reshape(-1, 2)[:, [1, 0]]) for c_idx in np.nditer(child_idx)]})
+                contour_dict.update({'child': [convert_contour_to_mask(contours[c_idx], mask_array.shape) for c_idx in np.nditer(child_idx)]})
             mask_array_dict_ls.append(contour_dict)
         return mask_array_dict_ls
 
