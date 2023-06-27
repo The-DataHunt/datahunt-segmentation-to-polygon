@@ -4,12 +4,28 @@ import warnings
 import numpy as np
 from imantics import Mask
 import numpy_indexed as npi
+from skimage import measure
 from PIL import Image, ImageDraw
 from typing import List, Dict, Union
-from skimage import measure, draw
-warnings.simplefilter('ignore', np.RankWarning)
+from scipy.ndimage import binary_dilation
+from shapely.geometry import Polygon, MultiPolygon
+warnings.filterwarnings(action='ignore')
 
 """Instance Segmentation to Polygon Conversion"""
+
+
+def find_different_polygon_idx(new_polygon_coords, existing_polygon_coords):
+    polygon_coords_shapely = list(map(Polygon, new_polygon_coords))
+    exist_coords_shapely = list(map(Polygon, existing_polygon_coords))
+    different_polygon_indices = [idx for idx, new in enumerate(polygon_coords_shapely) if
+                                 not any(new.equals(exist) for exist in exist_coords_shapely)]
+    return different_polygon_indices[0]
+
+
+def make_nested_list_format(lst):
+    if isinstance(lst, list) and not any(isinstance(sub_lst, list) for sub_lst in lst[:2]):
+        return [lst]
+    return lst
 
 
 def add_corner_points(corner_points, corner_idx, final_poly, poly, poly_backup=None):
@@ -95,8 +111,10 @@ class MaskPolygonConverter:
         :param poly_method: imantics or contours
         :param min_poly_num: minimum number of points a polygon
         """
+        super(MaskPolygonConverter, self).__init__()
         self.poly_method = poly_method
         self.min_poly_num = min_poly_num
+        self.kernel = np.array([[False, True, False], [True, True, True], [False, True, False]])
 
     def string_image_to_array(self, str_image: str, return_mask_array: bool = True) -> Union[np.ndarray, List[np.ndarray]]:
         from_buffer = np.frombuffer(base64.b64decode(str_image), np.uint8)
@@ -144,16 +162,6 @@ class MaskPolygonConverter:
             return np.empty(shape=(0, 0))
         return final_poly if model_infer_object else final_poly.flatten()
 
-    def polygon_to_mask_image(self, polygon: List[Dict], img_size: Dict, color_platte: Dict) -> np.ndarray:
-        color_map_image = np.zeros((img_size['height'], img_size['width'], 3), dtype=np.uint8)
-        for info in polygon:
-            label = info['label']
-            poly = np.array([[v['y'], v['x']] for v in info['boundingPoly']['vertices']], dtype=np.int32)
-            mask = draw.polygon2mask((img_size['height'], img_size['width']), poly)
-            color_map_image[mask == 1, :] = color_platte[label]
-        color_map_image = color_map_image[..., ::-1]
-        return color_map_image
-
     def get_auto_labeling_result(self, model_inference_result_json: Dict, sampling_ratio: float = 0.1) -> List:
         mask_image = self.string_image_to_array(model_inference_result_json['mask']['value'], return_mask_array=False)
 
@@ -173,12 +181,74 @@ class MaskPolygonConverter:
             polygon_result.append(self.mask_array_to_polygon(mask, sampling_ratio, model_infer_object=True))
         return datahunt_polygon_format(class_ls, polygon_result,  model_inference_result_json['imgSize'])
 
-    def get_single_object_polygon_result(self, str_image: str, sampling_ratio: float = 0.1) -> List[Dict]:
-        mask_array = self.string_image_to_array(str_image, return_mask_array=True)
+    def find_add_or_remove_area(self, exist_str_image: str, update_str_image: str) -> tuple[np.array, np.array]:
+        exist_array = self.string_image_to_array(exist_str_image).astype(np.float32)
+        update_area_array = self.string_image_to_array(update_str_image).astype(np.float32)
+        update_area = np.subtract(exist_array, update_area_array)
+        removed_area = update_area == 1
+        added_area = update_area == -1
+        return binary_dilation(removed_area, structure=self.kernel), binary_dilation(added_area, structure=self.kernel)
+
+    def update_removed_or_added_polygon(self, existing_polygon_coords: list, update_area_coords: list, action: str = 'brush') -> List:
+        existing_polygon_coords = [np.array(coord).reshape(-1, 2) for coord in existing_polygon_coords]
+        for area in update_area_coords:
+            if 'child' in area.keys():
+                holes = [ls.reshape(-1, 2) for ls in area['child']]
+            else:
+                holes = None
+            polygon = Polygon(area['parent'].reshape(-1, 2), holes=holes)
+            result_polygon_ls = []
+            for existing_polygon_coord in existing_polygon_coords:
+                existing_polygon = Polygon(existing_polygon_coord)
+                if action == 'brush':
+                    result_polygon = existing_polygon.union(polygon)
+                else:
+                    result_polygon = existing_polygon.difference(polygon)
+
+                if isinstance(result_polygon, MultiPolygon):
+                    new_polygon_coords = [np.array(p.exterior.coords) for p in result_polygon if
+                                          len(np.array(p.exterior.coords)) >= 10]
+                else:
+                    new_polygon_coords = [np.array(result_polygon.exterior.coords)] if len(
+                        np.array(result_polygon.exterior.coords)) >= 10 else []
+                if not result_polygon_ls:
+                    result_polygon_ls.extend(new_polygon_coords)
+                else:
+                    idx = find_different_polygon_idx(new_polygon_coords, result_polygon_ls)
+                    result_polygon_ls.append(new_polygon_coords[idx])
+                existing_polygon_coords = result_polygon_ls
+        return [poly.flatten().astype(np.int32).tolist() for poly in existing_polygon_coords]
+
+    def single_object_mask_to_polygon(self, mask_array: np.array, sampling_ratio: float = 0.1) -> List[Dict]:
         mask_array_dict_ls = self.check_is_multiple_or_hierarchy(mask_array)
         for p_idx, mask_dict in enumerate(mask_array_dict_ls):
             mask_array_dict_ls[p_idx]['parent'] = self.mask_array_to_polygon(mask_dict['parent'], sampling_ratio)
             if 'child' in mask_dict.keys():
                 for c_idx, child_mask in enumerate(mask_dict['child']):
                     mask_array_dict_ls[p_idx]['child'][c_idx] = self.mask_array_to_polygon(child_mask, sampling_ratio)
+        return mask_array_dict_ls
+
+    def get_single_object_polygon_result(self,
+                                         exist_str_image: str,
+                                         update_str_image: Union[None, str],
+                                         sampling_ratio: float = 0.1,
+                                         existing_polygon_coords: Union[None, List] = None) -> List[Dict]:
+        if isinstance(update_str_image, str):
+            removed_area, added_area = self.find_add_or_remove_area(exist_str_image, update_str_image)
+            if added_area.sum() > 0:
+                added_area_polygon = self.single_object_mask_to_polygon(added_area, sampling_ratio)
+                existing_polygon_coords = self.update_removed_or_added_polygon(
+                    existing_polygon_coords=make_nested_list_format(existing_polygon_coords),
+                    update_area_coords=added_area_polygon,
+                    action='brush')
+            if removed_area.sum() > 0:
+                removed_area_polygon = self.single_object_mask_to_polygon(removed_area, sampling_ratio)
+                existing_polygon_coords = self.update_removed_or_added_polygon(
+                    existing_polygon_coords=make_nested_list_format(existing_polygon_coords),
+                    update_area_coords=removed_area_polygon,
+                    action='eraser')
+            mask_array_dict_ls = [{'parent': coords} for coords in existing_polygon_coords]
+        else:
+            mask_array = self.string_image_to_array(exist_str_image, return_mask_array=True)
+            mask_array_dict_ls = self.single_object_mask_to_polygon(mask_array, sampling_ratio)
         return mask_array_dict_ls
