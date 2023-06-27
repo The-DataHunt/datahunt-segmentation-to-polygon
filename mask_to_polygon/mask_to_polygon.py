@@ -181,9 +181,9 @@ class MaskPolygonConverter:
             polygon_result.append(self.mask_array_to_polygon(mask, sampling_ratio, model_infer_object=True))
         return datahunt_polygon_format(class_ls, polygon_result,  model_inference_result_json['imgSize'])
 
-    def find_add_or_remove_area(self, exist_str_image: str, update_str_image: str) -> tuple[np.array, np.array]:
-        exist_array = self.string_image_to_array(exist_str_image).astype(np.float32)
-        update_area_array = self.string_image_to_array(update_str_image).astype(np.float32)
+    def find_add_or_remove_area(self, previous_str_image: str, current_str_image: str) -> tuple[np.array, np.array]:
+        exist_array = self.string_image_to_array(previous_str_image).astype(np.float32)
+        update_area_array = self.string_image_to_array(current_str_image).astype(np.float32)
         update_area = np.subtract(exist_array, update_area_array)
         removed_area = update_area == 1
         added_area = update_area == -1
@@ -229,12 +229,12 @@ class MaskPolygonConverter:
         return mask_array_dict_ls
 
     def get_single_object_polygon_result(self,
-                                         exist_str_image: str,
-                                         update_str_image: Union[None, str],
+                                         current_str_image: str,
+                                         previous_str_image: Union[None, str],
                                          sampling_ratio: float = 0.1,
                                          existing_polygon_coords: Union[None, List] = None) -> List[Dict]:
-        if isinstance(update_str_image, str):
-            removed_area, added_area = self.find_add_or_remove_area(exist_str_image, update_str_image)
+        if isinstance(previous_str_image, str):
+            removed_area, added_area = self.find_add_or_remove_area(previous_str_image, current_str_image)
             if added_area.sum() > 0:
                 added_area_polygon = self.single_object_mask_to_polygon(added_area, sampling_ratio)
                 existing_polygon_coords = self.update_removed_or_added_polygon(
@@ -249,6 +249,6 @@ class MaskPolygonConverter:
                     action='eraser')
             mask_array_dict_ls = [{'parent': coords} for coords in existing_polygon_coords]
         else:
-            mask_array = self.string_image_to_array(exist_str_image, return_mask_array=True)
+            mask_array = self.string_image_to_array(current_str_image, return_mask_array=True)
             mask_array_dict_ls = self.single_object_mask_to_polygon(mask_array, sampling_ratio)
         return mask_array_dict_ls
