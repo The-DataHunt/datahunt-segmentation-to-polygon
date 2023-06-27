@@ -233,7 +233,7 @@ class MaskPolygonConverter:
                                          previous_str_image: Union[None, str],
                                          sampling_ratio: float = 0.1,
                                          existing_polygon_coords: Union[None, List] = None) -> List[Dict]:
-        if isinstance(previous_str_image, str):
+        if isinstance(previous_str_image, str) and isinstance(existing_polygon_coords, list):
             removed_area, added_area = self.find_add_or_remove_area(previous_str_image, current_str_image)
             if added_area.sum() > 0:
                 added_area_polygon = self.single_object_mask_to_polygon(added_area, sampling_ratio)
@@ -247,7 +247,7 @@ class MaskPolygonConverter:
                     existing_polygon_coords=make_nested_list_format(existing_polygon_coords),
                     update_area_coords=removed_area_polygon,
                     action='eraser')
-            mask_array_dict_ls = [{'parent': coords} for coords in existing_polygon_coords]
+            mask_array_dict_ls = [{'parent': np.array(coords)} for coords in existing_polygon_coords]
         else:
             mask_array = self.string_image_to_array(current_str_image, return_mask_array=True)
             mask_array_dict_ls = self.single_object_mask_to_polygon(mask_array, sampling_ratio)
