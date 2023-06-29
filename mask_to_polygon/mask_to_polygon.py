@@ -1,3 +1,4 @@
+import os
 import cv2
 import base64
 import warnings
@@ -179,7 +180,7 @@ class MaskPolygonConverter:
         polygon_result = []
         for mask in mask_ls:
             polygon_result.append(self.mask_array_to_polygon(mask, sampling_ratio, model_infer_object=True))
-        return datahunt_polygon_format(class_ls, polygon_result,  model_inference_result_json['imgSize'])
+        return datahunt_polygon_format(class_ls, polygon_result, model_inference_result_json['imgSize'])
 
     def find_add_or_remove_area(self, previous_str_image: str, current_str_image: str) -> tuple[np.array, np.array]:
         exist_array = self.string_image_to_array(previous_str_image).astype(np.float32)
@@ -206,7 +207,7 @@ class MaskPolygonConverter:
                     result_polygon = existing_polygon.difference(polygon)
 
                 if isinstance(result_polygon, MultiPolygon):
-                    new_polygon_coords = [np.array(p.exterior.coords) for p in result_polygon if
+                    new_polygon_coords = [np.array(p.exterior.coords) for p in result_polygon.geoms if
                                           len(np.array(p.exterior.coords)) >= 10]
                 else:
                     new_polygon_coords = [np.array(result_polygon.exterior.coords)] if len(
