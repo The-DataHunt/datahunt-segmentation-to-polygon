@@ -1,4 +1,3 @@
-import os
 import cv2
 import base64
 import warnings
@@ -198,9 +197,15 @@ class MaskPolygonConverter:
             else:
                 holes = None
             polygon = Polygon(area['parent'].reshape(-1, 2), holes=holes)
+            if not polygon.is_valid:
+                polygon = polygon.buffer(0)
+
             result_polygon_ls = []
             for existing_polygon_coord in existing_polygon_coords:
                 existing_polygon = Polygon(existing_polygon_coord)
+                if not existing_polygon.is_valid:
+                    existing_polygon = existing_polygon.buffer(0)
+
                 if action == 'brush':
                     result_polygon = existing_polygon.union(polygon)
                 else:
